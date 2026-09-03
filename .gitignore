@@ -1,0 +1,6 @@
+*.deb
+*.tar.gz
+*.tmp
+package_root/
+extracted/
+SHA256SUMS

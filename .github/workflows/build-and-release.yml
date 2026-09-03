@@ -1,0 +1,96 @@
+name: Build and Release Antigravity IDE .deb
+
+on:
+  schedule:
+    - cron: '0 6 * * *' # Daily check at 06:00 UTC
+  workflow_dispatch:
+    inputs:
+      force_build:
+        description: 'Force build even if release already exists'
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+jobs:
+  check-and-build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y fakeroot curl jq
+
+      - name: Check latest version from Google CDN
+        id: get-version
+        run: |
+          HTML=$(curl -fsSL --compressed "https://antigravity.google/download" || true)
+          URL=$(echo "$HTML" | grep -o -E "https://edgedl\.me\.gvt1\.com/edgedl/release2/[^\"' ]+/linux-x64/Antigravity%20IDE\.tar\.gz" | head -n 1 || true)
+          if [ -z "$URL" ]; then
+            URL="https://edgedl.me.gvt1.com/edgedl/release2/j0qc3/antigravity/stable/2.5.5-4923483625488384/linux-x64/Antigravity%20IDE.tar.gz"
+          fi
+          VERSION=$(echo "$URL" | sed -E 's|.*/stable/([0-9.]+)-.*|\1|')
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+          echo "Found latest version: $VERSION"
+
+      - name: Check existing release tag
+        id: check-tag
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run:
+          VERSION="${{ steps.get-version.outputs.version }}"
+          TAG="v${VERSION}"
+          if gh release view "$TAG" >/dev/null 2>&1 && [ "${{ inputs.force_build }}" != "true" ]; then
+            echo "Release $TAG already exists and force_build is false. Skipping."
+            echo "should_build=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Release $TAG needs to be built."
+            echo "should_build=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build amd64 package
+        if: steps.check-tag.outputs.should_build == 'true'
+        run: |
+          ./build.sh amd64
+
+      - name: Build arm64 package
+        if: steps.check-tag.outputs.should_build == 'true'
+        run: |
+          ./build.sh arm64
+
+      - name: Generate SHA256 checksums
+        if: steps.check-tag.outputs.should_build == 'true'
+        run: |
+          sha256sum *.deb > SHA256SUMS
+          cat SHA256SUMS
+
+      - name: Create GitHub Release
+        if: steps.check-tag.outputs.should_build == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: "v${{ steps.get-version.outputs.version }}"
+          name: "Antigravity IDE v${{ steps.get-version.outputs.version }}"
+          body: |
+            Automated Debian/Ubuntu packaging for Google Antigravity IDE (Standalone).
+            
+            Built directly from Google's official release tarballs.
+            
+            ### Checksums (SHA-256)
+            ```
+            $(cat SHA256SUMS)
+            ```
+            
+            ### Quick Install
+            ```bash
+            # For AMD64 / x86_64
+            curl -fLO https://github.com/${{ github.repository }}/releases/download/v${{ steps.get-version.outputs.version }}/antigravity-ide_${{ steps.get-version.outputs.version }}_amd64.deb
+            sudo apt install ./antigravity-ide_${{ steps.get-version.outputs.version }}_amd64.deb
+            ```
+          files: |
+            *.deb
+            SHA256SUMS
