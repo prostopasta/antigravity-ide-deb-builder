@@ -42,7 +42,7 @@ jobs:
         id: check-tag
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run:
+        run: |
           VERSION="${{ steps.get-version.outputs.version }}"
           TAG="v${VERSION}"
           if gh release view "$TAG" >/dev/null 2>&1 && [ "${{ inputs.force_build }}" != "true" ]; then
