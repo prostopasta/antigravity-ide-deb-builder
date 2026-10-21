@@ -55,7 +55,11 @@ REPO_DIR="/var/local/antigravity-ide-repo"
 echo "==> Setting up local APT repository at $REPO_DIR..."
 $SUDO mkdir -p "$REPO_DIR"
 $SUDO cp "$DEB_FILE" "$REPO_DIR/"
-(cd "$REPO_DIR" && dpkg-scanpackages . /dev/null | gzip -9c | $SUDO tee Packages.gz > /dev/null)
+# Both the plain and the gzipped index: with Packages.gz alone apt warns that
+# the repository "does not seem to provide" Packages and skips the index
+(cd "$REPO_DIR" \
+    && dpkg-scanpackages . /dev/null | $SUDO tee Packages > /dev/null \
+    && gzip -9c Packages | $SUDO tee Packages.gz > /dev/null)
 # Release file. Without it apt keeps probing InRelease, Release and the
 # Translation-* files on every update and prints a wall of Get/Ign lines for
 # this repository. It is written outside the directory first: apt-ftparchive
