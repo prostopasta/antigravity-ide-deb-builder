@@ -23,7 +23,7 @@ fi
 # 1. Install prerequisites
 echo "==> Ensuring prerequisites are installed..."
 $SUDO apt-get update -qq
-$SUDO apt-get install -y -qq curl dpkg-dev fakeroot >/dev/null
+$SUDO apt-get install -y -qq curl dpkg-dev fakeroot apt-utils >/dev/null
 
 # 2. Build or download deb
 WORKDIR="$(mktemp -d -t antigravity-install-XXXXXX)"
@@ -56,6 +56,13 @@ echo "==> Setting up local APT repository at $REPO_DIR..."
 $SUDO mkdir -p "$REPO_DIR"
 $SUDO cp "$DEB_FILE" "$REPO_DIR/"
 (cd "$REPO_DIR" && dpkg-scanpackages . /dev/null | gzip -9c | $SUDO tee Packages.gz > /dev/null)
+# Release file. Without it apt keeps probing InRelease, Release and the
+# Translation-* files on every update and prints a wall of Get/Ign lines for
+# this repository. It is written outside the directory first: apt-ftparchive
+# would otherwise checksum the empty file the redirect just created.
+(cd "$REPO_DIR" && $SUDO rm -f Release \
+    && apt-ftparchive release . > "$WORKDIR/Release" \
+    && $SUDO install -m 0644 "$WORKDIR/Release" Release)
 
 # 4. Register APT source
 SOURCES_LIST="/etc/apt/sources.list.d/antigravity-ide-local.list"
