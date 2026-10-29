@@ -73,7 +73,34 @@ SOURCES_LIST="/etc/apt/sources.list.d/antigravity-ide-local.list"
 echo "==> Registering APT source: $SOURCES_LIST..."
 echo "deb [trusted=yes] file:$REPO_DIR ./" | $SUDO tee "$SOURCES_LIST" > /dev/null
 
-# 5. Install via APT
+# 5. Install the updater and its timer
+# The updater must not live in an APT hook: staging a release is a ~190 MB
+# download, and a hook would make every "apt update" wait for it.
+RAW_URL="https://raw.githubusercontent.com/prostopasta/antigravity-ide-deb-builder/main"
+echo "==> Installing update checker and daily timer..."
+if [ -f "$SCRIPT_DIR/updater.sh" ]; then
+    $SUDO install -m 0755 "$SCRIPT_DIR/updater.sh" /usr/local/bin/check-antigravity-ide-update
+else
+    curl -fsSL "$RAW_URL/updater.sh" -o "$WORKDIR/updater.sh"
+    $SUDO install -m 0755 "$WORKDIR/updater.sh" /usr/local/bin/check-antigravity-ide-update
+fi
+
+for unit in antigravity-ide-update.service antigravity-ide-update.timer; do
+    if [ -f "$SCRIPT_DIR/systemd/$unit" ]; then
+        $SUDO install -m 0644 "$SCRIPT_DIR/systemd/$unit" "/etc/systemd/system/$unit"
+    else
+        curl -fsSL "$RAW_URL/systemd/$unit" -o "$WORKDIR/$unit"
+        $SUDO install -m 0644 "$WORKDIR/$unit" "/etc/systemd/system/$unit"
+    fi
+done
+
+# Earlier versions of this installer wired the check into an APT hook
+$SUDO rm -f /etc/apt/apt.conf.d/99antigravity-ide
+
+$SUDO systemctl daemon-reload
+$SUDO systemctl enable --now antigravity-ide-update.timer
+
+# 6. Install via APT
 echo "==> Installing antigravity-ide via apt..."
 $SUDO apt-get update -o Dir::Etc::sourcelist="sources.list.d/antigravity-ide-local.list" -o Dir::Etc::sourceparts="-"
 $SUDO apt-get install -y --reinstall antigravity-ide

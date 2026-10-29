@@ -1,0 +1,12 @@
+[Unit]
+Description=Daily check for new Antigravity IDE releases
+
+[Timer]
+OnCalendar=daily
+# Spread the download away from the usual morning login burst, and catch up
+# after the machine was off.
+RandomizedDelaySec=2h
+Persistent=true
+
+[Install]
+WantedBy=timers.target
