@@ -44,7 +44,9 @@ sudo apt install ./antigravity-ide_*_amd64.deb
 
 ## Automatic Updates via APT
 
-To have Antigravity IDE automatically update during standard `sudo apt update && sudo apt upgrade`:
+New releases are staged into a local APT repository by a daily systemd timer, so
+`sudo apt upgrade` picks them up like any other package. `install.sh` sets all of
+this up; to do it by hand:
 
 1. Keep a local repository in `/var/local/antigravity-ide-repo`:
    ```bash
@@ -52,12 +54,23 @@ To have Antigravity IDE automatically update during standard `sudo apt update &&
    echo "deb [trusted=yes] file:/var/local/antigravity-ide-repo ./" | sudo tee /etc/apt/sources.list.d/antigravity-ide-local.list
    ```
 
-2. Add the automated check script to APT pre-invoke hooks:
+2. Install the updater and its timer:
    ```bash
-   sudo tee /etc/apt/apt.conf.d/99antigravity-ide << 'HOOK'
-   APT::Update::Pre-Invoke { "if [ -x /usr/local/bin/check-antigravity-ide-update ]; then /usr/local/bin/check-antigravity-ide-update --quiet; fi || true"; };
-   HOOK
+   sudo install -m 0755 updater.sh /usr/local/bin/check-antigravity-ide-update
+   sudo install -m 0644 systemd/antigravity-ide-update.* /etc/systemd/system/
+   sudo systemctl daemon-reload
+   sudo systemctl enable --now antigravity-ide-update.timer
    ```
+
+Stage a release right now, without waiting for the timer:
+
+```bash
+sudo /usr/local/bin/check-antigravity-ide-update
+```
+
+> **Do not** run the updater from an `APT::Update::Pre-Invoke` hook. Staging a
+> release downloads ~190 MB from Google's CDN, and an APT hook makes every
+> `apt update` block on that download.
 
 ---
 

@@ -1,0 +1,14 @@
+[Unit]
+Description=Stage new Antigravity IDE releases into the local APT repository
+Documentation=https://github.com/prostopasta/antigravity-ide-deb-builder
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/bin/check-antigravity-ide-update --quiet
+# Staging a release is a ~190 MB download plus an xz rebuild; it must never
+# compete with whatever the user is doing at the time.
+Nice=10
+IOSchedulingClass=idle
+TimeoutStartSec=30min
