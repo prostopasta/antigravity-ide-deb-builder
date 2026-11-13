@@ -2,6 +2,16 @@
 
 Automated, clean-room Debian/Ubuntu (`.deb`) packaging and repository automation for **Google Antigravity IDE (Standalone)**.
 
+## Contents
+
+- [Why this exists](#why-this-exists)
+- [Quick installation](#quick-installation): one-line installer, local build, cross-building.
+- [Automatic updates via APT](#automatic-updates-via-apt): short summary.
+- [Documentation](#documentation)
+  - [Local APT repository and automatic updates](docs/APT_REPOSITORY.md): how it works, files, updater options, rollback, reading `apt update` output, troubleshooting, refreshing only this source without losing the other lists.
+  - [Signing the local APT repository](docs/REPOSITORY_SIGNING.md): what is signed, the signing key and why it needs no backup, migrating from `trusted=yes`.
+- [Legal and licensing notice](#legal--licensing-notice)
+
 ---
 
 ## Why this exists
@@ -46,46 +56,9 @@ sudo apt install ./antigravity-ide_*_amd64.deb
 
 New releases are staged into a local APT repository by a daily systemd timer, so
 `sudo apt upgrade` picks them up like any other package. `install.sh` sets all of
-this up; to do it by hand:
-
-1. Install the updater and its timer:
-   ```bash
-   sudo install -m 0755 updater.sh /usr/local/bin/check-antigravity-ide-update
-   sudo install -m 0644 systemd/antigravity-ide-update.* /etc/systemd/system/
-   sudo systemctl daemon-reload
-   sudo systemctl enable --now antigravity-ide-update.timer
-   ```
-
-2. Create the local repository in `/var/local/antigravity-ide-repo` and register it:
-   ```bash
-   sudo mkdir -p /var/local/antigravity-ide-repo
-   sudo /usr/local/bin/check-antigravity-ide-update --reindex
-   echo "deb [signed-by=/etc/apt/keyrings/antigravity-ide-local.gpg] file:/var/local/antigravity-ide-repo ./" | sudo tee /etc/apt/sources.list.d/antigravity-ide-local.list
-   ```
-
-### Repository signing
-
-The updater signs the local repository: it writes `InRelease` next to `Release`
-and apt verifies it with `signed-by=`, so the sources entry needs no
-`trusted=yes`. The signing key is created on this machine the first time the
-updater runs:
-
-| What | Where |
-|------|-------|
-| Private key (no passphrase, root only) | `/var/lib/antigravity-ide-repo/gnupg` |
-| Public key apt checks against | `/etc/apt/keyrings/antigravity-ide-local.gpg` |
-
-The key never leaves the machine and needs no backup. If it is lost, the next
-updater run creates a new one and re-exports the public key.
-
-Upgrading from an older install that still has `trusted=yes`:
-
-```bash
-sudo install -m 0755 updater.sh /usr/local/bin/check-antigravity-ide-update
-sudo /usr/local/bin/check-antigravity-ide-update --reindex
-echo "deb [signed-by=/etc/apt/keyrings/antigravity-ide-local.gpg] file:/var/local/antigravity-ide-repo ./" | sudo tee /etc/apt/sources.list.d/antigravity-ide-local.list
-sudo apt update
-```
+this up. The repository lives in `/var/local/antigravity-ide-repo` and is signed
+with a key created on the machine, so its source entry uses `signed-by=` rather
+than `trusted=yes`.
 
 Stage a release right now, without waiting for the timer:
 
@@ -93,9 +66,23 @@ Stage a release right now, without waiting for the timer:
 sudo /usr/local/bin/check-antigravity-ide-update
 ```
 
+Setting it up by hand, updater options, rollback and troubleshooting are in
+[docs/APT_REPOSITORY.md](docs/APT_REPOSITORY.md). The signing key, and moving an
+older install off `trusted=yes`, are in
+[docs/REPOSITORY_SIGNING.md](docs/REPOSITORY_SIGNING.md).
+
 > **Do not** run the updater from an `APT::Update::Pre-Invoke` hook. Staging a
 > release downloads ~190 MB from Google's CDN, and an APT hook makes every
 > `apt update` block on that download.
+
+---
+
+## Documentation
+
+| Document | What it covers |
+|----------|----------------|
+| [docs/APT_REPOSITORY.md](docs/APT_REPOSITORY.md) | How the local repository and the daily timer work, files and paths, setting it up by hand, updater options and environment variables, rolling back, reading `apt update` output, troubleshooting |
+| [docs/REPOSITORY_SIGNING.md](docs/REPOSITORY_SIGNING.md) | Why the repository is signed, what exactly is signed, where the key lives and why it has no passphrase and no backup, migrating from `trusted=yes`, checking and replacing the key |
 
 ---
 

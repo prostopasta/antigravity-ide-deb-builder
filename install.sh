@@ -98,7 +98,14 @@ $SUDO systemctl enable --now antigravity-ide-update.timer
 
 # 6. Install via APT
 echo "==> Installing antigravity-ide via apt..."
-$SUDO apt-get update -o Dir::Etc::sourcelist="sources.list.d/antigravity-ide-local.list" -o Dir::Etc::sourceparts="-"
+# Only the local source is refreshed, to keep the install fast. List-Cleanup=0
+# is required: without it apt deletes the package lists of every source it was
+# not shown here, Ubuntu's archive included, and "apt upgrade" then finds
+# nothing to upgrade until the next full "apt update".
+$SUDO apt-get update \
+    -o Dir::Etc::sourcelist="sources.list.d/antigravity-ide-local.list" \
+    -o Dir::Etc::sourceparts="-" \
+    -o APT::Get::List-Cleanup="0"
 $SUDO apt-get install -y --reinstall antigravity-ide
 
 echo "=========================================================="
