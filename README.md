@@ -48,19 +48,44 @@ New releases are staged into a local APT repository by a daily systemd timer, so
 `sudo apt upgrade` picks them up like any other package. `install.sh` sets all of
 this up; to do it by hand:
 
-1. Keep a local repository in `/var/local/antigravity-ide-repo`:
-   ```bash
-   sudo mkdir -p /var/local/antigravity-ide-repo
-   echo "deb [trusted=yes] file:/var/local/antigravity-ide-repo ./" | sudo tee /etc/apt/sources.list.d/antigravity-ide-local.list
-   ```
-
-2. Install the updater and its timer:
+1. Install the updater and its timer:
    ```bash
    sudo install -m 0755 updater.sh /usr/local/bin/check-antigravity-ide-update
    sudo install -m 0644 systemd/antigravity-ide-update.* /etc/systemd/system/
    sudo systemctl daemon-reload
    sudo systemctl enable --now antigravity-ide-update.timer
    ```
+
+2. Create the local repository in `/var/local/antigravity-ide-repo` and register it:
+   ```bash
+   sudo mkdir -p /var/local/antigravity-ide-repo
+   sudo /usr/local/bin/check-antigravity-ide-update --reindex
+   echo "deb [signed-by=/etc/apt/keyrings/antigravity-ide-local.gpg] file:/var/local/antigravity-ide-repo ./" | sudo tee /etc/apt/sources.list.d/antigravity-ide-local.list
+   ```
+
+### Repository signing
+
+The updater signs the local repository: it writes `InRelease` next to `Release`
+and apt verifies it with `signed-by=`, so the sources entry needs no
+`trusted=yes`. The signing key is created on this machine the first time the
+updater runs:
+
+| What | Where |
+|------|-------|
+| Private key (no passphrase, root only) | `/var/lib/antigravity-ide-repo/gnupg` |
+| Public key apt checks against | `/etc/apt/keyrings/antigravity-ide-local.gpg` |
+
+The key never leaves the machine and needs no backup. If it is lost, the next
+updater run creates a new one and re-exports the public key.
+
+Upgrading from an older install that still has `trusted=yes`:
+
+```bash
+sudo install -m 0755 updater.sh /usr/local/bin/check-antigravity-ide-update
+sudo /usr/local/bin/check-antigravity-ide-update --reindex
+echo "deb [signed-by=/etc/apt/keyrings/antigravity-ide-local.gpg] file:/var/local/antigravity-ide-repo ./" | sudo tee /etc/apt/sources.list.d/antigravity-ide-local.list
+sudo apt update
+```
 
 Stage a release right now, without waiting for the timer:
 
