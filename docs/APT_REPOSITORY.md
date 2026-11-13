@@ -18,6 +18,7 @@ Signing is covered separately in [REPOSITORY_SIGNING.md](REPOSITORY_SIGNING.md).
 - [Rolling back to the previous release](#rolling-back-to-the-previous-release)
 - [Reading `apt update` output](#reading-apt-update-output)
 - [Troubleshooting](#troubleshooting)
+- [Refreshing only this source](#refreshing-only-this-source)
 - [Why the updater is not an APT hook](#why-the-updater-is-not-an-apt-hook)
 
 ## How it works
@@ -200,6 +201,26 @@ switch such an install to the signed layout.
 | `Hash Sum mismatch` | Files changed in the repository after `InRelease` was written | `sudo check-antigravity-ide-update --reindex` |
 | A new release never shows up in `apt upgrade` | The timer has not run, or the download page changed | Check `systemctl list-timers` and `journalctl -u antigravity-ide-update.service` |
 | The same release is downloaded every day | The run failed before writing the indexes | Run the updater by hand and read the error |
+| `apt upgrade` suddenly finds nothing, kernel and all; `apt-cache policy <pkg>` lists only `/var/lib/dpkg/status` | An `apt-get update` limited to one source deleted the lists of all the others (see below) | `sudo apt update` |
+
+## Refreshing only this source
+
+To update the local source alone, without fetching every repository, limit the
+source list **and** turn off list cleanup:
+
+```bash
+sudo apt-get update -o Dir::Etc::sourcelist="sources.list.d/antigravity-ide-local.list" -o Dir::Etc::sourceparts="-" -o APT::Get::List-Cleanup="0"
+```
+
+After an update apt removes from `/var/lib/apt/lists` every file that does not
+belong to the sources it was given. With only the local source given, that is
+every other repository, Ubuntu's archive included. Nothing breaks visibly:
+`apt upgrade` simply reports `0 upgraded`, and a new kernel that `apt upgrade`
+normally keeps back looks as if it were held. A full `sudo apt update` brings
+the lists back. `install.sh` passes `List-Cleanup=0` for this reason.
+
+A quick check that the lists are gone: `ls /var/lib/apt/lists | wc -l` shows a
+handful of files instead of a hundred or more.
 
 ## Why the updater is not an APT hook
 

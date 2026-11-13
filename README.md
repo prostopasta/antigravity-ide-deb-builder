@@ -8,7 +8,7 @@ Automated, clean-room Debian/Ubuntu (`.deb`) packaging and repository automation
 - [Quick installation](#quick-installation): one-line installer, local build, cross-building.
 - [Automatic updates via APT](#automatic-updates-via-apt): short summary.
 - [Documentation](#documentation)
-  - [Local APT repository and automatic updates](docs/APT_REPOSITORY.md): how it works, files, updater options, rollback, reading `apt update` output, troubleshooting.
+  - [Local APT repository and automatic updates](docs/APT_REPOSITORY.md): how it works, files, updater options, rollback, reading `apt update` output, troubleshooting, refreshing only this source without losing the other lists.
   - [Signing the local APT repository](docs/REPOSITORY_SIGNING.md): what is signed, the signing key and why it needs no backup, migrating from `trusted=yes`.
 - [Legal and licensing notice](#legal--licensing-notice)
 
