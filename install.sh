@@ -23,7 +23,7 @@ fi
 # 1. Install prerequisites
 echo "==> Ensuring prerequisites are installed..."
 $SUDO apt-get update -qq
-$SUDO apt-get install -y -qq curl dpkg-dev fakeroot apt-utils >/dev/null
+$SUDO apt-get install -y -qq curl dpkg-dev fakeroot apt-utils gnupg >/dev/null
 
 # 2. Build or download deb
 WORKDIR="$(mktemp -d -t antigravity-install-XXXXXX)"
@@ -50,39 +50,17 @@ if [ -z "$DEB_FILE" ]; then
     exit 1
 fi
 
-# 3. Setup local APT repository
-REPO_DIR="/var/local/antigravity-ide-repo"
-echo "==> Setting up local APT repository at $REPO_DIR..."
-$SUDO mkdir -p "$REPO_DIR"
-$SUDO cp "$DEB_FILE" "$REPO_DIR/"
-# Both the plain and the gzipped index: with Packages.gz alone apt warns that
-# the repository "does not seem to provide" Packages and skips the index
-(cd "$REPO_DIR" \
-    && dpkg-scanpackages . /dev/null | $SUDO tee Packages > /dev/null \
-    && gzip -9c Packages | $SUDO tee Packages.gz > /dev/null)
-# Release file. Without it apt keeps probing InRelease, Release and the
-# Translation-* files on every update and prints a wall of Get/Ign lines for
-# this repository. It is written outside the directory first: apt-ftparchive
-# would otherwise checksum the empty file the redirect just created.
-(cd "$REPO_DIR" && $SUDO rm -f Release \
-    && apt-ftparchive release . > "$WORKDIR/Release" \
-    && $SUDO install -m 0644 "$WORKDIR/Release" Release)
-
-# 4. Register APT source
-SOURCES_LIST="/etc/apt/sources.list.d/antigravity-ide-local.list"
-echo "==> Registering APT source: $SOURCES_LIST..."
-echo "deb [trusted=yes] file:$REPO_DIR ./" | $SUDO tee "$SOURCES_LIST" > /dev/null
-
-# 5. Install the updater and its timer
+# 3. Install the updater and its timer
 # The updater must not live in an APT hook: staging a release is a ~190 MB
 # download, and a hook would make every "apt update" wait for it.
 RAW_URL="https://raw.githubusercontent.com/prostopasta/antigravity-ide-deb-builder/main"
+UPDATER="/usr/local/bin/check-antigravity-ide-update"
 echo "==> Installing update checker and daily timer..."
 if [ -f "$SCRIPT_DIR/updater.sh" ]; then
-    $SUDO install -m 0755 "$SCRIPT_DIR/updater.sh" /usr/local/bin/check-antigravity-ide-update
+    $SUDO install -m 0755 "$SCRIPT_DIR/updater.sh" "$UPDATER"
 else
     curl -fsSL "$RAW_URL/updater.sh" -o "$WORKDIR/updater.sh"
-    $SUDO install -m 0755 "$WORKDIR/updater.sh" /usr/local/bin/check-antigravity-ide-update
+    $SUDO install -m 0755 "$WORKDIR/updater.sh" "$UPDATER"
 fi
 
 for unit in antigravity-ide-update.service antigravity-ide-update.timer; do
@@ -93,6 +71,24 @@ for unit in antigravity-ide-update.service antigravity-ide-update.timer; do
         $SUDO install -m 0644 "$WORKDIR/$unit" "/etc/systemd/system/$unit"
     fi
 done
+
+# 4. Setup local APT repository
+# The updater writes the indexes (Packages, Packages.gz, Release) and signs
+# them into InRelease, creating the repository's signing key on first use, so
+# the installer and the timer always produce the same repository.
+REPO_DIR="/var/local/antigravity-ide-repo"
+KEYRING="/etc/apt/keyrings/antigravity-ide-local.gpg"
+echo "==> Setting up local APT repository at $REPO_DIR..."
+$SUDO mkdir -p "$REPO_DIR"
+$SUDO cp "$DEB_FILE" "$REPO_DIR/"
+$SUDO "$UPDATER" --reindex
+
+# 5. Register APT source
+# signed-by instead of trusted=yes: apt checks InRelease against the local key
+# rather than accepting whatever is in the directory.
+SOURCES_LIST="/etc/apt/sources.list.d/antigravity-ide-local.list"
+echo "==> Registering APT source: $SOURCES_LIST..."
+echo "deb [signed-by=$KEYRING] file:$REPO_DIR ./" | $SUDO tee "$SOURCES_LIST" > /dev/null
 
 # Earlier versions of this installer wired the check into an APT hook
 $SUDO rm -f /etc/apt/apt.conf.d/99antigravity-ide

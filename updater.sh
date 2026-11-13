@@ -11,12 +11,16 @@ set -euo pipefail
 
 QUIET=false
 FORCE=false
+REINDEX_ONLY=false
 for arg in "$@"; do
     case "$arg" in
         -q|--quiet) QUIET=true ;;
         -f|--force) FORCE=true ;;
+        # Rebuilds and re-signs the indexes without going to the network;
+        # install.sh uses it to set up the repository for the first time.
+        -r|--reindex) REINDEX_ONLY=true ;;
         -h|--help)
-            echo "Usage: ${0##*/} [-q|--quiet] [-f|--force]"
+            echo "Usage: ${0##*/} [-q|--quiet] [-f|--force] [-r|--reindex]"
             exit 0
             ;;
         *)
@@ -32,6 +36,16 @@ PKG_NAME="antigravity-ide"
 # previous one stays around so a broken release can be rolled back by hand.
 KEEP_RELEASES="${KEEP_RELEASES:-2}"
 
+# The repository is signed with a key of its own, created on this machine the
+# first time the updater runs. It is passwordless because the timer runs with
+# nobody at the keyboard, and it lives outside REPO_DIR, which everyone can read.
+# Losing it costs nothing: the next run creates a new one and re-exports the
+# public half, so there is nothing to back up.
+SIGNING_HOME="${SIGNING_HOME:-/var/lib/antigravity-ide-repo/gnupg}"
+SIGNING_UID="Antigravity IDE local APT repository"
+# apt checks InRelease against this file (signed-by= in the sources entry).
+SIGNING_KEYRING="${SIGNING_KEYRING:-/etc/apt/keyrings/antigravity-ide-local.gpg}"
+
 log() {
     if [ "$QUIET" = false ]; then
         echo "[antigravity-ide-updater] $*"
@@ -44,14 +58,42 @@ warn() {
 
 mkdir -p "$REPO_DIR"
 
+gpg_repo() {
+    gpg --homedir "$SIGNING_HOME" --batch --quiet --yes "$@"
+}
+
+# Creates the signing key on the first run and exports its public half for apt.
+# The export runs every time, so a keyring that was deleted or belongs to an
+# older key is put right instead of leaving apt to reject the repository.
+ensure_signing_key() {
+    install -d -m 0700 "$SIGNING_HOME"
+    if ! gpg_repo --list-secret-keys "=$SIGNING_UID" >/dev/null 2>&1; then
+        log "Creating the signing key for $REPO_DIR"
+        gpg_repo --passphrase '' --pinentry-mode loopback \
+            --quick-generate-key "$SIGNING_UID" ed25519 sign never
+    fi
+
+    local tmp_key
+    tmp_key="$(mktemp -t antigravity-key-XXXXXX)"
+    gpg_repo --export "=$SIGNING_UID" > "$tmp_key"
+    install -D -m 0644 "$tmp_key" "$SIGNING_KEYRING"
+    rm -f "$tmp_key"
+}
+
 # Rebuilds every index file apt reads. Doing only Packages.gz leaves apt on the
 # stale plain Packages, so a staged release is never offered for installation
 # and the next run downloads it all over again.
 reindex_repo() {
-    local tmp_release
+    local tmp_release tmp_inrelease
     tmp_release="$(mktemp -t antigravity-release-XXXXXX)"
+    tmp_inrelease="$(mktemp -t antigravity-inrelease-XXXXXX)"
+    ensure_signing_key
     (
         cd "$REPO_DIR"
+        # An InRelease left from the previous run lists the old checksums. If
+        # signing fails below, apt must report an unsigned repository, not a
+        # hash mismatch that points at the wrong file.
+        rm -f InRelease
         dpkg-scanpackages . /dev/null > Packages 2>/dev/null
         gzip -9cf Packages > Packages.gz
         # apt-ftparchive is pointed at the directory only after Release is gone,
@@ -59,8 +101,14 @@ reindex_repo() {
         rm -f Release
         apt-ftparchive release . > "$tmp_release"
         install -m 0644 "$tmp_release" Release
+        # InRelease is the first file apt asks for. With it in place apt stops
+        # probing InRelease and Release.gpg and printing Ign lines for them.
+        gpg_repo --local-user "=$SIGNING_UID" --clearsign --output "$tmp_inrelease" Release
+        install -m 0644 "$tmp_inrelease" InRelease
     )
-    rm -f "$tmp_release"
+    rm -f "$tmp_release" "$tmp_inrelease"
+    # Running as root from a timer, the agent would otherwise outlive the run.
+    gpgconf --homedir "$SIGNING_HOME" --kill gpg-agent 2>/dev/null || true
 }
 
 # Drops .deb files beyond KEEP_RELEASES, but never the version that is currently
@@ -83,6 +131,12 @@ prune_old_debs() {
         rm -f "$REPO_DIR/${PKG_NAME}_${ver}_"*.deb
     done
 }
+
+if [ "$REINDEX_ONLY" = true ]; then
+    reindex_repo
+    log "Reindexed and signed $REPO_DIR"
+    exit 0
+fi
 
 # Check network connectivity quickly
 if ! curl -fsSL --head --connect-timeout 4 "https://antigravity.google" >/dev/null 2>&1; then
